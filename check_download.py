@@ -14,7 +14,7 @@ download(playlist_url(sys.argv[1]), str(folder.resolve()), '192', events, thread
 success = False
 while not events.empty():
     kind, value = events.get_nowait()
-    if kind != 'progress':
+    if kind in ('log', 'done'):
         print(kind, value, flush=True)
     if kind == 'done':
         success = value.startswith('Готово!')
