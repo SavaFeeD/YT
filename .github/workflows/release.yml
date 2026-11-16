@@ -61,6 +61,14 @@ jobs:
         run: |
           $app = Start-Process -FilePath '.\dist\YT\YT.exe' -ArgumentList '--smoke-test' -WindowStyle Hidden -Wait -PassThru
           if ($app.ExitCode -ne 0) { throw "Packaged YT failed: $($app.ExitCode)" }
+      - name: Test packaged MP3 decoder
+        run: |
+          $clip = Join-Path $PWD 'build\audio-smoke.mp3'
+          & '.\dist\YT\_internal\bin\ffmpeg.exe' -hide_banner -loglevel error -y -f lavfi -i 'anullsrc=r=44100:cl=stereo' -t 1 -codec:a libmp3lame $clip
+          if ($LASTEXITCODE -ne 0) { throw 'Audio fixture generation failed' }
+          $env:SDL_AUDIODRIVER = 'dummy'
+          $audio = Start-Process -FilePath '.\dist\YT\YT.exe' -ArgumentList @('--audio-smoke-test', ('"{0}"' -f $clip)) -WindowStyle Hidden -Wait -PassThru
+          if ($audio.ExitCode -ne 0) { throw "Packaged audio decoder failed: $($audio.ExitCode)" }
       - name: Save build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

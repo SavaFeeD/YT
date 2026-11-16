@@ -17,6 +17,7 @@ OutputBaseFilename=YT-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=public\favicon.ico
 UninstallDisplayIcon={app}\YT.exe
 CloseApplications=yes
 
@@ -30,8 +31,8 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 Source: "dist\YT\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\YT"; Filename: "{app}\YT.exe"
-Name: "{autodesktop}\YT"; Filename: "{app}\YT.exe"; Tasks: desktopicon
+Name: "{group}\YT"; Filename: "{app}\YT.exe"; IconFilename: "{app}\YT.exe"; IconIndex: 0
+Name: "{autodesktop}\YT"; Filename: "{app}\YT.exe"; IconFilename: "{app}\YT.exe"; IconIndex: 0; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\YT.exe"; Description: "Запустить YT"; Flags: nowait postinstall skipifsilent

@@ -13,7 +13,8 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageOps, ImageTk
 import requests
 
-from downloader import CONFIG, download, fetch_playlist, playlist_url
+from downloader import BASE, CONFIG, download, fetch_playlist, playlist_url
+from player import Player
 
 BG = '#030911'
 PANEL = '#050d17'
@@ -156,13 +157,16 @@ class TrackRow(tk.Frame):
 
 
 class App(tk.Tk):
-    def __init__(self):
+    def __init__(self, start_maximized=None, scan_on_start=True):
         super().__init__()
-        self.title('YT · Плейлист → MP3')
-        width = min(1360, self.winfo_screenwidth() - 70)
-        height = min(900, self.winfo_screenheight() - 100)
+        self.title('YT · Музыка и загрузки')
+        icon = BASE / 'public' / 'favicon.ico'
+        if os.name == 'nt' and icon.is_file():
+            self.iconbitmap(default=str(icon))
+        width = min(1440, self.winfo_screenwidth() - 70)
+        height = min(int(width * 9 / 16), self.winfo_screenheight() - 100)
         self.geometry(f'{width}x{height}')
-        self.minsize(1000, 700)
+        self.minsize(1000, 640)
         self.configure(bg=BG)
         self.events = queue.Queue()
         self.cancel = threading.Event()
@@ -176,6 +180,8 @@ class App(tk.Tk):
         self.preview_token = 0
         self.image_generation = 0
         self.image_cancel = threading.Event()
+        self.save_after = None
+        self.fullscreen = False
         settings = {}
         try:
             settings = json.loads(CONFIG.read_text(encoding='utf-8'))
@@ -183,6 +189,14 @@ class App(tk.Tk):
                 settings = {}
         except (OSError, ValueError):
             pass
+        self.settings = settings
+        try:
+            volume = float(settings.get('volume', .5))
+        except (ValueError, TypeError):
+            volume = .5
+        self.player = Player(volume=volume, shuffle=bool(settings.get('shuffle', False)))
+        self.library_follow = bool(settings.get('library_follow', True))
+        self.page = 'library'
         self.url = tk.StringVar(value=settings.get('url', ''))
         self.folder = tk.StringVar(value=settings.get('folder', str(Path.home() / 'Music' / 'YT')))
         self.quality = tk.StringVar(value=str(settings.get('quality', '192')))
@@ -204,11 +218,17 @@ class App(tk.Tk):
         self.url.trace_add('write', self.schedule_preview)
         self.search.trace_add('write', lambda *args: self.filter_rows())
         self.bind_all('<MouseWheel>', self.scroll_tracks, add='+')
+        self.bind('<F11>', self.toggle_fullscreen)
+        self.bind('<Escape>', self.exit_fullscreen)
         self.after(100, self.poll)
         self.after(100, self.dark_titlebar)
-        self.link_entry.focus_set()
-        if self.url.get() and '--smoke-test' not in sys.argv:
-            self.schedule_preview()
+        self.library.search_entry.focus_set()
+        self.folder.trace_add('write', self.download_folder_changed)
+        if scan_on_start:
+            self.after(120, self.library.refresh)
+        maximize = settings.get('maximized', True) if start_maximized is None else start_maximized
+        if maximize and os.name == 'nt' and '--smoke-test' not in sys.argv:
+            self.state('zoomed')
 
     def setup_style(self):
         style = ttk.Style(self)
@@ -219,6 +239,69 @@ class App(tk.Tk):
                         borderwidth=0, bordercolor='#14212d', lightcolor=RED, darkcolor=RED, thickness=13)
         style.configure('Vertical.TScrollbar', background='#203445', troughcolor=BG,
                         borderwidth=0, bordercolor=BG, lightcolor=BG, darkcolor=BG, arrowcolor=MUTED, arrowsize=11)
+        style.map('Vertical.TScrollbar', background=[('disabled', LINE), ('active', '#28495c'), ('!disabled', '#203445')])
+        style.configure('Library.Treeview', background=BG, fieldbackground=BG, foreground=TEXT,
+                        rowheight=48, borderwidth=0, font=(FONT, 11))
+        style.layout('Library.Treeview', [('Treeview.treearea', {'sticky': 'nswe'})])
+        style.map('Library.Treeview', background=[('selected', '#133346')], foreground=[('selected', TEXT)])
+        style.configure('Library.Treeview.Heading', background=PANEL, foreground=MUTED,
+                        borderwidth=0, padding=(12, 10), font=(FONT, 9, 'bold'))
+        style.map('Library.Treeview.Heading', background=[('active', PANEL)])
+        style.configure('Player.Horizontal.TScale', background=CYAN, troughcolor=LINE, borderwidth=0,
+                        bordercolor=LINE, lightcolor=CYAN, darkcolor=CYAN, sliderlength=12,
+                        sliderthickness=12, troughborderwidth=0)
+
+    def toggle_fullscreen(self, event=None):
+        self.fullscreen = not self.fullscreen
+        self.attributes('-fullscreen', self.fullscreen)
+        return 'break'
+
+    def exit_fullscreen(self, event=None):
+        if self.fullscreen:
+            self.fullscreen = False
+            self.attributes('-fullscreen', False)
+            return 'break'
+
+    def request_save(self):
+        if self.save_after:
+            self.after_cancel(self.save_after)
+        self.save_after = self.after(350, self.save_settings)
+
+    def save_settings(self):
+        self.save_after = None
+        self.settings.update({
+            'folder': self.folder.get(), 'quality': self.quality.get(), 'url': self.url.get(),
+            'concurrency': int(self.concurrency.get()), 'volume': self.player.volume,
+            'shuffle': self.player.queue.shuffle, 'library_folder': self.library.folder.get(),
+            'library_follow': self.library_follow,
+        })
+        if not self.fullscreen and self.state() != 'withdrawn':
+            self.settings['maximized'] = self.state() == 'zoomed'
+        try:
+            CONFIG.parent.mkdir(parents=True, exist_ok=True)
+            temporary = CONFIG.with_suffix('.tmp')
+            temporary.write_text(json.dumps(self.settings, ensure_ascii=False), encoding='utf-8')
+            temporary.replace(CONFIG)
+        except OSError as error:
+            self.add_log(f'Не удалось сохранить настройки: {error}')
+
+    def download_folder_changed(self, *args):
+        if self.library_follow:
+            self.library.folder.set(self.folder.get())
+            self.library.schedule_refresh()
+        self.request_save()
+
+    def show_page(self, page):
+        self.page = page
+        self.download_page.pack_forget()
+        self.library.pack_forget()
+        (self.library if page == 'library' else self.download_page).pack(fill='both', expand=True)
+        for name, button in self.page_buttons.items():
+            button.fill, button.color = (CYAN, BG) if name == page else (BG, MUTED)
+            button.border = CYAN if name == page else LINE
+            button.draw()
+        if page == 'downloads' and self.url.get() and not self.busy and not self.playlist:
+            self.schedule_preview()
 
     def dark_titlebar(self):
         if os.name != 'nt':
@@ -245,15 +328,30 @@ class App(tk.Tk):
         return border, field
 
     def build_interface(self):
-        footer = tk.Frame(self, bg=BG, height=44, highlightthickness=1, highlightbackground='#0d1b28')
+        from music_ui import LibraryView, PlayerBar
+        footer = tk.Frame(self, bg=BG, height=28, highlightthickness=1, highlightbackground='#0d1b28')
         footer.pack(side='bottom', fill='x')
         footer.pack_propagate(False)
         self.indicator = self.label(footer, '●', color=GREEN, size=13)
         self.indicator.pack(side='left', padx=(20, 10))
         self.label(footer, variable=self.status, color=MUTED, size=10, anchor='w').pack(side='left', fill='x', expand=True)
-        self.label(footer, 'YT  /  MP3', color='#456073', size=9).pack(side='right', padx=20)
-        body = tk.Frame(self, bg=BG)
-        body.pack(fill='both', expand=True)
+        self.label(footer, 'F11 — полный экран  ·  Esc — выйти', color='#456073', size=9).pack(side='right', padx=20)
+        self.player_bar = PlayerBar(self, self)
+        self.player_bar.pack(side='bottom', fill='x')
+        nav = tk.Frame(self, bg=PANEL, padx=24, pady=12)
+        nav.pack(fill='x')
+        self.label(nav, 'YT', color=RED, size=20, bold=True).pack(side='left', padx=(0, 30))
+        self.page_buttons = {}
+        for name, text in [('library', 'Моя музыка'), ('downloads', 'Загрузки')]:
+            button = Button(nav, text, lambda target=name: self.show_page(target), height=36, font_size=10)
+            button.configure(width=150)
+            button.pack(side='left', padx=(0, 10))
+            self.page_buttons[name] = button
+        self.label(nav, 'ВАША МУЗЫКА. НА ВАШЕМ КОМПЬЮТЕРЕ.', color='#658095', size=9).pack(side='right')
+        self.content = tk.Frame(self, bg=BG)
+        self.content.pack(fill='both', expand=True)
+        self.download_page = tk.Frame(self.content, bg=BG)
+        body = self.download_page
         sidebar = tk.Frame(body, bg=BG, width=355)
         sidebar.pack(side='left', fill='y')
         sidebar.pack_propagate(False)
@@ -266,11 +364,19 @@ class App(tk.Tk):
         def resize_sidebar(event=None):
             available = self.sidebar_canvas.winfo_height() - 52
             height = max(available, left.winfo_reqheight())
-            self.sidebar_canvas.itemconfigure(left_window, height=height)
-            self.sidebar_canvas.configure(scrollregion=(0, 0, 355, height + 52))
+            width = self.sidebar_canvas.winfo_width()
+            self.sidebar_canvas.itemconfigure(left_window, height=height, width=max(200, width - 52))
+            self.sidebar_canvas.configure(scrollregion=(0, 0, width, height + 52))
 
         self.sidebar_canvas.bind('<Configure>', resize_sidebar)
         left.bind('<Configure>', resize_sidebar)
+
+        def resize_columns(event):
+            width = min(420, max(300, int(event.width * .24)))
+            if sidebar.winfo_reqwidth() != width:
+                sidebar.configure(width=width)
+
+        body.bind('<Configure>', resize_columns)
         logo = tk.Frame(left, bg=BG)
         logo.pack(fill='x')
         self.label(logo, 'YT', color=RED, size=36, bold=True).pack(side='left')
@@ -363,6 +469,9 @@ class App(tk.Tk):
         self.empty = self.label(self.track_frame, 'Музыка начинается со ссылки\n\nДобавьте плейлист YouTube или YouTube Music.\nЗдесь появятся обложки, длительность и статус каждого трека.',
                                 color=MUTED, size=12, justify='center', pady=70)
         self.empty.pack(fill='both', expand=True)
+        library_folder = self.folder.get() if self.library_follow else self.settings.get('library_folder', self.folder.get())
+        self.library = LibraryView(self.content, self, library_folder)
+        self.show_page('library')
 
     def select_quality(self, quality):
         self.quality.set(quality)
@@ -526,9 +635,7 @@ class App(tk.Tk):
                 raise ValueError('Выберите папку сохранения.')
             folder = Path(self.folder.get()).expanduser().resolve()
             folder.mkdir(parents=True, exist_ok=True)
-            CONFIG.parent.mkdir(parents=True, exist_ok=True)
-            CONFIG.write_text(json.dumps({'folder': str(folder), 'quality': self.quality.get(), 'url': url,
-                                          'concurrency': int(self.concurrency.get())}, ensure_ascii=False), encoding='utf-8')
+            self.save_settings()
         except (ValueError, OSError) as error:
             messagebox.showerror('YT', str(error))
             return
@@ -564,7 +671,9 @@ class App(tk.Tk):
         self.log.configure(state='disabled')
 
     def handle_event(self, kind, value):
-        if kind == 'log':
+        if kind == 'library':
+            self.library.apply(value)
+        elif kind == 'log':
             self.add_log(value)
         elif kind == 'preview':
             token, data, error = value
@@ -588,6 +697,8 @@ class App(tk.Tk):
                 if cover:
                     (cover if key == '__playlist__' else cover.cover).set_image(data)
         elif kind == 'track':
+            if value['state'] == 'done' and Path(self.library.folder.get()).resolve() == Path(self.folder.get()).resolve():
+                self.library.schedule_refresh()
             row = self.rows.get(value['key'])
             if row:
                 row.update_state(**{key: item for key, item in value.items() if key != 'key'})
@@ -607,6 +718,8 @@ class App(tk.Tk):
             self.overall_percent.set(f'{int(percent)}%')
             self.summary.set(f'Обработано  {value["finished"]} из {value["total"]}')
         elif kind == 'done':
+            if Path(self.library.folder.get()).resolve() == Path(self.folder.get()).resolve():
+                self.library.schedule_refresh()
             self.active_transfers.clear()
             self.status.set(value)
             self.add_log(value)
@@ -625,6 +738,9 @@ class App(tk.Tk):
             except queue.Empty:
                 break
             self.handle_event(kind, value)
+        self.player.poll()
+        self.player_bar.tick()
+        self.library.tick()
         if self.closing and (not self.worker or not self.worker.is_alive()):
             self.destroy()
             return
@@ -632,6 +748,9 @@ class App(tk.Tk):
 
     def destroy(self):
         self.image_cancel.set()
+        if '--smoke-test' not in sys.argv:
+            self.save_settings()
+        self.player.close()
         for callback in self.tk.call('after', 'info'):
             self.after_cancel(callback)
         super().destroy()
@@ -641,5 +760,8 @@ class App(tk.Tk):
             if messagebox.askyesno('YT', 'Остановить загрузку и закрыть приложение?'):
                 self.closing = True
                 self.stop()
+                self.player.close()
+                self.player.state = 'idle'
+                self.player.revision += 1
         else:
             self.destroy()

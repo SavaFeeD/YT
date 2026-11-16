@@ -67,6 +67,9 @@ def main():
     args = parser.parse_args()
     version = read_version()
     compiler, node = check_tools()
+    icon = ROOT / 'public' / 'favicon.ico'
+    if not icon.is_file():
+        raise SystemExit('Application icon not found: public/favicon.ico')
     print(f'YT {version}; Inno Setup: {compiler}; Node.js: {node}', flush=True)
     if args.check:
         return
@@ -80,6 +83,9 @@ def main():
     subprocess.run([
         sys.executable, '-m', 'PyInstaller', '--noconfirm', '--windowed', '--onedir',
         '--name', 'YT', '--collect-all', 'yt_dlp', '--collect-all', 'yt_dlp_ejs',
+        '--icon', str(icon), '--add-data', f'{icon};public',
+        '--collect-binaries', 'pygame',
+        '--copy-metadata', 'pygame-ce',
         '--add-binary', f'{binary_dir / "ffmpeg.exe"};bin',
         '--add-binary', f'{binary_dir / "node.exe"};bin',
         '--exclude-module', 'imageio_ffmpeg', str(ROOT / 'app.py'),

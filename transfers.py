@@ -12,6 +12,7 @@ def download_parallel(url, folder, quality, events, cancel, playlist_items, play
     import yt_dlp
     counts = {'completed': 0, 'skipped': 0, 'failed': 0, 'finished': 0}
     counts_lock = threading.Lock()
+    archive_lock = threading.Lock()
 
     class Logger:
         def debug(self, message):
@@ -70,7 +71,7 @@ def download_parallel(url, folder, quality, events, cancel, playlist_items, play
                     track('unavailable')
                     return 'failed'
                 # A duplicate video must wait until the first copy has written its archive entry.
-                # Other IDs run independently. yt-dlp locks the archive file when appending.
+                # Other IDs run independently; archive reads/writes are synchronized below.
                 lock = video_locks[entry['id']]
                 while not lock.acquire(timeout=0.1):
                     check_cancel(cancel)
@@ -91,7 +92,18 @@ def download_parallel(url, folder, quality, events, cancel, playlist_items, play
                     options['js_runtimes'] = {'deno': {'path': str(deno)}} if deno.exists() else {
                         'node': {'path': str(node)} if node.exists() else {},
                     }
-                    with yt_dlp.YoutubeDL(options) as downloader:
+                    # Keep the in-process lock through close/flush, not just the OS file lock.
+                    # A peer must not preload the archive between unlocking and flushing a write.
+                    with archive_lock:
+                        instance = yt_dlp.YoutubeDL(options)
+                    record_archive = instance.record_download_archive
+
+                    def record_safely(info):
+                        with archive_lock:
+                            return record_archive(info)
+
+                    instance.record_download_archive = record_safely
+                    with instance as downloader:
                         if downloader.in_download_archive({'id': entry['id'], 'extractor_key': 'Youtube'}):
                             track('skipped', percent=100)
                             return 'skipped'
