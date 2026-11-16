@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.lock.txt
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - name: Verify release version
+        env:
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($env:RELEASE_REF_TYPE -eq 'tag' -and $env:RELEASE_REF_NAME -ne "v$version") {
+            throw "Tag must match VERSION: v$version"
+          }
+      - name: Install dependencies
+        run: python -m pip install -r requirements.lock.txt
+      - name: Test
+        run: python -m unittest discover -v
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --yes --no-progress --limit-output
+          if ($LASTEXITCODE -notin 0, 1641, 3010) { throw 'Inno Setup installation failed' }
+          $compiler = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 7\ISCC.exe"
+          ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $compiler) { throw 'Inno Setup compiler was not found' }
+          "INNO_SETUP_COMPILER=$compiler" >> $env:GITHUB_ENV
+          $global:LASTEXITCODE = 0
+      - name: Build installer and portable ZIP
+        run: python build.py
+      - name: Test packaged app
+        run: |
+          $app = Start-Process -FilePath '.\dist\YT\YT.exe' -ArgumentList '--smoke-test' -WindowStyle Hidden -Wait -PassThru
+          if ($app.ExitCode -ne 0) { throw "Packaged YT failed: $($app.ExitCode)" }
+      - name: Save build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: YT-windows-x64
+          path: |
+            release/YT-Setup.exe
+            release/YT-*-windows-x64.zip
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish GitHub release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $assets = Get-ChildItem release -File | Where-Object { $_.Name -eq 'YT-Setup.exe' -or $_.Name -like 'YT-*-windows-x64.zip' -or $_.Name -eq 'SHA256SUMS.txt' }
+          gh release create $env:RELEASE_TAG --verify-tag --title "YT $env:RELEASE_TAG" --generate-notes @($assets.FullName)
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release publication failed' }

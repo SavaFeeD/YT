@@ -1,0 +1,26 @@
+.venv/
+__pycache__/
+bin/
+build/
+dist/
+release/
+tools/
+*.spec
+test-download/
+playlist-check.json
+build-log.txt
+install-log.txt
+release-build-log.txt
+
+# Local settings and credentials
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+*.log
+*.mp3
+*.part
+.yt-archive.txt
+Thumbs.db
+Desktop.ini

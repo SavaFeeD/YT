@@ -1,0 +1,126 @@
+# YT
+
+Приложение Windows x64 на Python: скачивание звука из плейлистов YouTube в MP3.
+
+## Установка
+
+В разделе **Releases** репозитория скачайте `YT-Setup.exe` и запустите установку.
+Для запуска без установки распакуйте `YT-<версия>-windows-x64.zip` целиком и откройте
+`YT\YT.exe`. Python, Node.js и FFmpeg на компьютере пользователя не требуются.
+
+## Превью
+
+Запустите `preview.cmd`. Во время разработки закройте окно, измените `app.py` и снова запустите превью.
+
+Первичная подготовка:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+```
+
+Вставьте ссылку с параметром `list`, выберите папку и нажмите «Скачать плейлист».
+Качество 128–320 кбит/с задаёт битрейт MP3; повышение битрейта не улучшает исходный звук.
+Файлы содержат ID видео в названии для защиты от совпадающих названий.
+Скачанные записи учитываются в `.yt-archive.txt` выбранной папки. Если удалили MP3 и хотите
+скачать его снова, удалите соответствующую строку из архива или выберите другую папку.
+Недоступные видео пропускаются, ошибки отображаются в журнале.
+Остановка может дождаться сетевого таймаута или завершения преобразования FFmpeg.
+Скачивайте материалы, на сохранение которых у вас есть разрешение.
+
+## Сборка
+
+Запустите `release.cmd` двойным щелчком. Скрипт проверит Node.js и Inno Setup,
+создаст `.venv`, если нужно, установит зависимости и соберёт `release\YT-Setup.exe`.
+При ошибке окно останется открытым с сообщением. Для запуска без ожидания нажатия
+клавиши используйте `release.cmd --no-pause`. Перед сборкой закройте запущенную
+копию `dist\YT\YT.exe`, если она открыта.
+
+Для разработки и сборки нужны Windows x64, Python 3.13, Node.js 22+ и Inno Setup 6 или 7.
+Inno Setup находится автоматически в `tools\Inno`, в PATH или в стандартном каталоге
+`Program Files`. Для другого пути задайте переменную `INNO_SETUP_COMPILER`, указывающую
+на `ISCC.exe`.
+
+```powershell
+.\.venv\Scripts\python.exe build.py
+```
+
+Готовое приложение: `dist\YT\YT.exe`. Python на компьютере пользователя не требуется.
+Версия установщика берётся из `VERSION`. Сборка также создаёт portable ZIP
+`release\YT-<версия>-windows-x64.zip` и `release\SHA256SUMS.txt`.
+Результат: `release\YT-Setup.exe`. Установка выполняется для текущего пользователя,
+создаёт ярлыки и запись удаления в параметрах Windows. Музыкальная папка при удалении
+приложения сохраняется. Настройки находятся в `%LOCALAPPDATA%\YT\settings.json`.
+
+## Проверки
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -v
+.\.venv\Scripts\python.exe app.py --smoke-test
+```
+
+Тесты не обращаются к YouTube. Для отдельной сетевой проверки первого видео плейлиста:
+
+```powershell
+.\.venv\Scripts\python.exe check_download.py "ССЫЛКА_НА_ПЛЕЙЛИСТ"
+```
+
+Тестовый MP3 сохраняется в `test-download`, эта папка исключена из Git.
+
+## Git и первая загрузка на GitHub
+
+Локальная ветка проекта — `main`. Создайте пустой репозиторий GitHub без начальных
+файлов, затем выполните команды, подставив владельца и название своего репозитория:
+
+```powershell
+git remote add origin https://github.com/OWNER/YT.git
+git push -u origin main
+```
+
+Исходники, документация и настройки сборки хранятся в Git. Виртуальное окружение,
+EXE, ZIP, инструменты, журналы, настройки IDE и скачанная музыка исключены через `.gitignore`.
+
+## Релизы на GitHub
+
+В GitHub Actions предусмотрены два процесса:
+
+- **CI**: тесты и проверка запуска окна при push в `main` и в pull request.
+- **Release**: сборка Windows, проверка EXE и публикация установщика, portable ZIP
+  и SHA-256 при отправке тега `v<версия>`.
+
+Для нового релиза обновите `VERSION` и `CHANGELOG.md`, сохраните изменения коммитом,
+затем отправьте коммит и тег. Например, для версии `0.1.1`:
+
+```powershell
+git add VERSION CHANGELOG.md
+git commit -m "Release 0.1.1"
+git push origin main
+git tag -a v0.1.1 -m "YT 0.1.1"
+git push origin v0.1.1
+```
+
+Для первого релиза с текущей версией достаточно создать и отправить тег `v0.1.0`
+после загрузки `main`. Тег обязан совпадать с файлом `VERSION`.
+Дождитесь зелёного результата процесса **Release**, затем откройте **Releases**.
+Ручной запуск **Actions → Release → Run workflow** создаёт артефакты для скачивания
+на странице запуска и не публикует релиз. Артефакты запуска хранятся 14 дней.
+
+Используется встроенный `GITHUB_TOKEN`, отдельный токен в Secrets не нужен.
+GitHub Actions должны быть разрешены в настройках репозитория.
+Описание механизма публикации: [GitHub CLI: release create](https://cli.github.com/manual/gh_release_create).
+
+`requirements.lock.txt` фиксирует зависимости для одинаковых локальных и CI-сборок;
+`requirements.txt` перечисляет основные зависимости. Для обновления зависимостей:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --upgrade -r requirements.txt
+.\.venv\Scripts\python.exe -c "import pathlib, subprocess, sys; pathlib.Path('requirements.lock.txt').write_text(subprocess.check_output([sys.executable, '-m', 'pip', 'freeze'], text=True), encoding='utf-8')"
+```
+
+После обновления выполните тесты и `release.cmd`, затем добавьте обновлённый lock-файл в коммит.
+
+Зависимости: [yt-dlp](https://github.com/yt-dlp/yt-dlp),
+[FFmpeg / imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg),
+[Node.js](https://nodejs.org/), [PyInstaller](https://pyinstaller.org/),
+[Inno Setup](https://jrsoftware.org/inno-setup).
+YouTube меняется: при сбоях может понадобиться обновить yt-dlp и пересобрать приложение.
