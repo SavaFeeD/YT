@@ -5,4 +5,10 @@ if not exist .venv\Scripts\pythonw.exe (
   pause
   exit /b 1
 )
-start "" ".venv\Scripts\pythonw.exe" "app.py" %*
+".venv\Scripts\python.exe" -c "import yt.__main__" >nul 2>&1
+if errorlevel 1 (
+  echo Install the project first: .venv\Scripts\python.exe -m pip install -e ".[dev,build]"
+  pause
+  exit /b 1
+)
+start "" ".venv\Scripts\pythonw.exe" -m yt %*

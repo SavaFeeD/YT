@@ -12,15 +12,17 @@ if not exist ".venv\Scripts\python.exe" (
     if errorlevel 1 goto :failed
 )
 
-".venv\Scripts\python.exe" build.py --check
+".venv\Scripts\python.exe" scripts\build_release.py --check
 if errorlevel 1 goto :failed
 
 echo Preparing dependencies...
 ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r requirements.lock.txt
 if errorlevel 1 goto :failed
+".venv\Scripts\python.exe" -m pip install --disable-pip-version-check --no-deps --no-build-isolation -e .
+if errorlevel 1 goto :failed
 
 echo Building application and installer...
-".venv\Scripts\python.exe" build.py
+".venv\Scripts\python.exe" scripts\build_release.py
 if errorlevel 1 goto :failed
 
 if not exist "release\YT-Setup.exe" (

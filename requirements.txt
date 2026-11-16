@@ -1,5 +1,2 @@
-yt-dlp[default]
-imageio-ffmpeg
-pyinstaller
-Pillow
-pygame-ce
+# Compatibility entry point; dependencies are defined in pyproject.toml.
+-e .[dev,build]

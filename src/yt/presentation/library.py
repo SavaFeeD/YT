@@ -1,0 +1,231 @@
+"""LibraryView desktop view."""
+
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, ttk
+
+from yt.presentation.theme import BG, CYAN, MUTED, RED
+from yt.presentation.widgets import Button, duration_text, entry, label
+
+
+class LibraryView(tk.Frame):
+    def __init__(self, parent, app, folder):
+        super().__init__(parent, bg=BG)
+        self.app = app
+        self.folder = tk.StringVar(value=folder)
+        self.search = tk.StringVar()
+        self.token = 0
+        self.applied_folder = None
+        self.tracks = []
+        self.refresh_after = None
+        self.revision = -1
+        header = tk.Frame(self, bg=BG)
+        header.pack(fill="x", padx=32, pady=(20, 12))
+        header.columnconfigure(0, weight=1)
+        label(header, "Моя музыка", size=25, bold=True, anchor="w", width=1).grid(
+            row=0, column=0, sticky="ew"
+        )
+        self.info = label(
+            header,
+            "Скачанные MP3 · работают без интернета",
+            color=MUTED,
+            size=10,
+            anchor="w",
+            width=1,
+        )
+        self.info.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        controls = tk.Frame(header, bg=BG)
+        controls.grid(row=0, column=1, rowspan=2, sticky="e", padx=(20, 0))
+        self.play_button = Button(
+            controls, "▶  Слушать", self.play_first, fill=CYAN, color=BG, border=CYAN, height=42
+        )
+        self.play_button.configure(width=140)
+        self.play_button.pack(side="left", padx=(0, 12))
+        for text, command, width in [
+            ("Выбрать папку", self.choose_folder, 155),
+            ("Папка загрузки", self.use_download_folder, 155),
+            ("Обновить", self.refresh, 115),
+        ]:
+            button = Button(controls, text, command, height=42)
+            button.configure(width=width)
+            button.pack(side="left", padx=(0, 10))
+        self.path_label = label(
+            self, variable=self.folder, color="#658095", size=10, anchor="w", width=1
+        )
+        self.path_label.pack(fill="x", padx=34, pady=(0, 12))
+        border, self.search_entry = entry(self, self.search)
+        border.pack(fill="x", padx=32, pady=(0, 12))
+        self.search_entry.pack_configure(pady=10)
+        self.placeholder = label(border, "Поиск в моей музыке…", color=MUTED, size=10)
+        self.placeholder.place(x=13, rely=0.5, anchor="w")
+        self.placeholder.bind("<Button-1>", lambda event: self.search_entry.focus_set())
+        self.search_entry.bind("<FocusIn>", lambda event: self.update_placeholder(), add="+")
+        self.search_entry.bind("<FocusOut>", lambda event: self.update_placeholder(), add="+")
+        table = tk.Frame(self, bg=BG)
+        table.pack(fill="both", expand=True, padx=32, pady=(0, 12))
+        self.tree = ttk.Treeview(
+            table,
+            columns=("number", "title", "artist", "duration"),
+            show="headings",
+            selectmode="browse",
+            style="Library.Treeview",
+        )
+        for name, title, width, stretch in [
+            ("number", "#", 55, False),
+            ("title", "НАЗВАНИЕ", 420, True),
+            ("artist", "ИСПОЛНИТЕЛЬ", 240, True),
+            ("duration", "ВРЕМЯ", 95, False),
+        ]:
+            self.tree.heading(name, text=title, anchor="w")
+            self.tree.column(
+                name,
+                width=width,
+                minwidth=width if not stretch else 120,
+                stretch=stretch,
+                anchor="w",
+            )
+        self.tree.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
+        scroll.pack(side="right", fill="y")
+        self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.tag_configure("current", foreground=CYAN)
+        self.tree.bind("<Double-1>", self.play_selected)
+        self.tree.bind("<Return>", self.play_selected)
+        self.empty = label(
+            table,
+            "Здесь будет ваша музыка\n\nВыберите папку со скачанными MP3\nили скачайте плейлист в разделе «Загрузки».",
+            color=MUTED,
+            size=13,
+            justify="center",
+        )
+        self.empty.place(relx=0.5, rely=0.45, anchor="center")
+        self.hint = label(
+            self,
+            "Двойной щелчок — слушать  ·  Поиск не меняет очередь воспроизведения",
+            color="#658095",
+            size=10,
+            anchor="w",
+        )
+        self.hint.pack(fill="x", padx=34, pady=(0, 20))
+        self.search.trace_add("write", lambda *args: self.render())
+
+    def update_placeholder(self):
+        if self.search.get() or self.focus_get() == self.search_entry:
+            self.placeholder.place_forget()
+        else:
+            self.placeholder.place(x=13, rely=0.5, anchor="w")
+
+    def choose_folder(self):
+        chosen = filedialog.askdirectory(
+            initialdir=self.folder.get() if Path(self.folder.get()).is_dir() else Path.home()
+        )
+        if chosen:
+            self.app.library_follow = False
+            self.folder.set(chosen)
+            self.refresh()
+            self.app.request_save()
+
+    def use_download_folder(self):
+        self.app.library_follow = True
+        self.folder.set(self.app.folder.get())
+        self.refresh()
+        self.app.request_save()
+
+    def schedule_refresh(self):
+        if self.refresh_after:
+            self.app.after_cancel(self.refresh_after)
+        self.refresh_after = self.app.after(650, self.refresh)
+
+    def refresh(self):
+        self.refresh_after = None
+        self.token += 1
+        token, folder = self.token, self.folder.get()
+        same_folder = Path(folder).resolve() == Path(self.app.folder.get()).resolve()
+        excluded = [
+            row.entry["id"]
+            for row in self.app.rows.values()
+            if same_folder and row.state in ("downloading", "converting")
+        ]
+        self.info.configure(text="Обновляю библиотеку…")
+
+        self.app.services.library.load(token, folder, excluded)
+
+    def apply(self, payload):
+        token, folder, tracks, unreadable, error = payload
+        if token != self.token:
+            return
+        if error:
+            self.info.configure(text="Не удалось прочитать папку", fg=RED)
+            self.app.add_log(error)
+            return
+        self.app.player.set_library(tracks, reset=self.applied_folder != folder)
+        self.applied_folder = folder
+        self.tracks = tracks
+        duration = sum(track.duration for track in tracks)
+        text = f"{len(tracks)} треков  ·  {int(duration // 3600)} ч {int(duration % 3600 // 60):02} мин  ·  На этом компьютере"
+        if unreadable:
+            text += f"  ·  Не прочитано: {unreadable}"
+        self.info.configure(text=text, fg=MUTED)
+        self.render()
+
+    def render(self):
+        self.update_placeholder()
+        selected = self.tree.selection()
+        view = self.tree.yview()
+        self.tree.delete(*self.tree.get_children())
+        query = self.search.get().strip().casefold()
+        current = self.app.player.current.key if self.app.player.current else None
+        count = 0
+        for index, track in enumerate(self.tracks, 1):
+            if query not in f"{track.title} {track.artist} {track.path.name}".casefold():
+                continue
+            active = track.key == current
+            self.tree.insert(
+                "",
+                "end",
+                iid=track.key,
+                values=(
+                    "▶" if active else index,
+                    track.title,
+                    track.artist or "—",
+                    duration_text(track.duration),
+                ),
+                tags=("current",) if active else (),
+            )
+            count += 1
+        if selected and self.tree.exists(selected[0]):
+            self.tree.selection_set(selected[0])
+        if count:
+            self.empty.place_forget()
+        else:
+            text = (
+                "Ничего не найдено\n\nПопробуйте другое название."
+                if self.tracks
+                else "Здесь будет ваша музыка\n\nВыберите папку со скачанными MP3\nили скачайте плейлист в разделе «Загрузки»."
+            )
+            self.empty.configure(text=text)
+            self.empty.place(relx=0.5, rely=0.45, anchor="center")
+        self.play_button.configure(state="normal" if self.tracks else "disabled")
+        if view:
+            self.tree.yview_moveto(view[0])
+
+    def play_selected(self, event=None):
+        if event is not None and getattr(event, "num", None) == 1:
+            row = self.tree.identify_row(event.y)
+            if not row:
+                return "break"
+            self.tree.selection_set(row)
+        selected = self.tree.selection()
+        if selected:
+            self.app.player.play(selected[0])
+        return "break"
+
+    def play_first(self):
+        if not self.tracks:
+            return
+        self.app.player.restart()
+
+    def tick(self):
+        if self.revision != self.app.player.revision:
+            self.revision = self.app.player.revision
+            self.render()

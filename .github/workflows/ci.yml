@@ -21,8 +21,16 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.lock.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.lock.txt
+        run: |
+          python -m pip install -r requirements.lock.txt
+          python -m pip install --no-deps --no-build-isolation -e .
+      - name: Lint and format
+        run: |
+          python -m ruff check .
+          python -m ruff format --check .
       - name: Test
-        run: python -m unittest discover -v
+        run: python -m pytest -q
       - name: Check desktop startup
-        run: python app.py --smoke-test
+        run: python -m yt --smoke-test
+      - name: Build Python wheel
+        run: python -m build --wheel

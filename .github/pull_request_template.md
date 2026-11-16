@@ -4,6 +4,7 @@
 
 ## Проверка
 
-- [ ] `python -m unittest discover -v`
+- [ ] `python -m ruff check .` и `python -m ruff format --check .`
+- [ ] `python -m pytest -q`
 - [ ] Проверен запуск приложения, если изменялся интерфейс.
 - [ ] Проверена сборка, если изменялись зависимости или установщик.

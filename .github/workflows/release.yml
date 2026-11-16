@@ -41,9 +41,17 @@ jobs:
             throw "Tag must match VERSION: v$version"
           }
       - name: Install dependencies
-        run: python -m pip install -r requirements.lock.txt
+        run: |
+          python -m pip install -r requirements.lock.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+          python -m pip install --no-deps --no-build-isolation -e .
+      - name: Lint and format
+        run: |
+          python -m ruff check .
+          if ($LASTEXITCODE -ne 0) { throw 'Lint failed' }
+          python -m ruff format --check .
       - name: Test
-        run: python -m unittest discover -v
+        run: python -m pytest -q
       - name: Install Inno Setup
         run: |
           choco install innosetup --yes --no-progress --limit-output
@@ -56,7 +64,7 @@ jobs:
           "INNO_SETUP_COMPILER=$compiler" >> $env:GITHUB_ENV
           $global:LASTEXITCODE = 0
       - name: Build installer and portable ZIP
-        run: python build.py
+        run: python scripts/build_release.py
       - name: Test packaged app
         run: |
           $app = Start-Process -FilePath '.\dist\YT\YT.exe' -ArgumentList '--smoke-test' -WindowStyle Hidden -Wait -PassThru

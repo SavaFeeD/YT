@@ -24,3 +24,10 @@ release-build-log.txt
 .yt-archive.txt
 Thumbs.db
 Desktop.ini
+
+# Python package and developer-tool caches
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
