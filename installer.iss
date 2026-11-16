@@ -2,6 +2,10 @@
   #error Pass /DMyAppVersion=<VERSION> or use build.py
 #endif
 
+#ifndef MyAppIconName
+  #define MyAppIconName "YT.ico"
+#endif
+
 [Setup]
 AppId={{07D9D7A3-FEB7-48DB-99C3-11EDD91D2DC8}
 AppName=YT
@@ -29,10 +33,11 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 
 [Files]
 Source: "dist\YT\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "public\favicon.ico"; DestDir: "{app}\icons"; DestName: "{#MyAppIconName}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\YT"; Filename: "{app}\YT.exe"; IconFilename: "{app}\YT.exe"; IconIndex: 0
-Name: "{autodesktop}\YT"; Filename: "{app}\YT.exe"; IconFilename: "{app}\YT.exe"; IconIndex: 0; Tasks: desktopicon
+Name: "{group}\YT"; Filename: "{app}\YT.exe"; IconFilename: "{app}\icons\{#MyAppIconName}"; IconIndex: 0
+Name: "{autodesktop}\YT"; Filename: "{app}\YT.exe"; IconFilename: "{app}\icons\{#MyAppIconName}"; IconIndex: 0; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\YT.exe"; Description: "Запустить YT"; Flags: nowait postinstall skipifsilent

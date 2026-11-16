@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>YT music folder</title>
+  <defs>
+    <linearGradient id="folder" x1="64" y1="96" x2="960" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00e5d5"/>
+      <stop offset="0.45" stop-color="#1594ff"/>
+      <stop offset="0.75" stop-color="#4d35ff"/>
+      <stop offset="1" stop-color="#8f18f6"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#folder)" d="M160 96H350C377 96 397 109 413 132L465 208H864C917 208 960 251 960 304V832C960 885 917 928 864 928H160C107 928 64 885 64 832V192C64 139 107 96 160 96Z"/>
+  <g fill="#fff">
+    <path d="M432 426Q432 406 453 400L738 325Q768 317 768 348V420L496 490V736H432Z"/>
+    <path d="M704 388H768V666H704Z"/>
+    <ellipse cx="392" cy="748" rx="112" ry="84" transform="rotate(-20 392 748)"/>
+    <ellipse cx="664" cy="678" rx="112" ry="84" transform="rotate(-20 664 678)"/>
+  </g>
+</svg>

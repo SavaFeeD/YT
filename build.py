@@ -81,7 +81,7 @@ def main():
     shutil.copy2(imageio_ffmpeg.get_ffmpeg_exe(), binary_dir / 'ffmpeg.exe')
     shutil.copy2(node, binary_dir / 'node.exe')
     subprocess.run([
-        sys.executable, '-m', 'PyInstaller', '--noconfirm', '--windowed', '--onedir',
+        sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--windowed', '--onedir',
         '--name', 'YT', '--collect-all', 'yt_dlp', '--collect-all', 'yt_dlp_ejs',
         '--icon', str(icon), '--add-data', f'{icon};public',
         '--collect-binaries', 'pygame',
@@ -90,7 +90,9 @@ def main():
         '--add-binary', f'{binary_dir / "node.exe"};bin',
         '--exclude-module', 'imageio_ffmpeg', str(ROOT / 'app.py'),
     ], cwd=ROOT, check=True)
-    subprocess.run([str(compiler), f'/DMyAppVersion={version}', str(ROOT / 'installer.iss')], cwd=ROOT, check=True)
+    icon_name = f'YT-{hashlib.sha256(icon.read_bytes()).hexdigest()[:16]}.ico'
+    subprocess.run([str(compiler), f'/DMyAppVersion={version}', f'/DMyAppIconName={icon_name}',
+                    str(ROOT / 'installer.iss')], cwd=ROOT, check=True)
     package_release(version)
     print(f'Release files: {ROOT / "release"}', flush=True)
 
